@@ -9,7 +9,7 @@ from random import randint
 # new styles in the document.
 
 common_styles = {
-	'italic': {
+    'italic': {
         'replace_with': 'text:span',
         'style_attributes': {
             'style-name': 'markdown_italic'
@@ -50,13 +50,13 @@ common_styles = {
 }
 
 transform_map = {
-	'a': {
-		'replace_with': 'text:a',
-		'attributes': {
-			'xlink:type': 'simple',
-			'xlink:href': ''
-		}
-	},
+    'a': {
+        'replace_with': 'text:a',
+        'attributes': {
+            'xlink:type': 'simple',
+            'xlink:href': ''
+        }
+    },
 
     'p': common_styles['p'],
     'strong': common_styles['strong'],
@@ -111,6 +111,9 @@ transform_map = {
         'replace_with': 'text:list',
         'attributes': {
             'xml:id': 'list' + str(randint(100000000000000000,900000000000000000))
+        },
+        'style_attributes': {
+            'style-name': 'Numbering_20_1',
         }
     },
 
@@ -118,7 +121,7 @@ transform_map = {
         'replace_with': 'text:list',
         'attributes': {
             'xml:id': 'list' + str(randint(100000000000000000,900000000000000000))
-        }
+        },
     },
 
     'li': {

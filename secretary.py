@@ -69,11 +69,14 @@ FLOW_REFERENCES = {
     'after::cell'        : 'table:table-cell',
 }
 
+
 # ---- Exceptions
 class SecretaryError(Exception):
     pass
 
+
 class UndefinedSilently(Undefined):
+
     # Silently undefined,
     # see http://stackoverflow.com/questions/6182498
     def silently_undefined(*args, **kwargs):
@@ -92,15 +95,18 @@ class UndefinedSilently(Undefined):
 #
 # ************************************************
 
+
 def media_loader(f):
     def wrapper(*args, **kwargs):
         Renderer.__media_loader__ = f
 
     return wrapper
 
+
 def pad_string(value, length=5):
     value = str(value)
     return value.zfill(length)
+
 
 class Renderer(object):
     """
@@ -134,18 +140,27 @@ class Renderer(object):
         if environment:
             self.environment = environment
         else:
-            self.environment = Environment(undefined=UndefinedSilently,
-                                           autoescape=True)
-            # Register filters
-            self.environment.filters['pad'] = pad_string
-            self.environment.filters['markdown'] = self.markdown_filter
-            self.environment.filters['image'] = self.image_filter
+            env_kwargs = dict(
+                undefined=kwargs.pop('undefined', UndefinedSilently),
+                autoescape=kwargs.pop('autoescape', True),
+            )
+
+            self.environment = Environment(**env_kwargs)
+
+        # Register standard filters always
+        self.environment.filters['pad'] = pad_string
+        self.environment.filters['markdown'] = self.markdown_filter
+
+        if 'markdown' in self.environment.filters:
+            from markdown_map import transform_map
+            self.transform_map = kwargs.pop('transform_map', transform_map)
+
+        self.environment.filters['image'] = self.image_filter
 
         self.media_path = kwargs.pop('media_path', '')
         self.media_callback = self.fs_loader
 
         self._compile_tags_expressions()
-
 
     def media_loader(self, callback):
         """This sets the the media loader. A user defined function which
@@ -168,9 +183,8 @@ class Renderer(object):
         for zfile in archive.filelist:
             archive_files[zfile.filename] = archive.read(zfile.filename)
 
-        return archive_files
-
         self.log.debug('Unpack completed')
+        return archive_files
 
     def _pack_document(self, files):
         # Store to a zip files in files
@@ -187,7 +201,6 @@ class Renderer(object):
         self.log.debug('Document packing completed')
 
         return zip_file
-
 
     @staticmethod
     def _inc_node_tags_count(node, is_block=False):
@@ -208,7 +221,6 @@ class Renderer(object):
 
         Renderer._inc_node_tags_count(node.parentNode, is_block)
 
-
     def _compile_tags_expressions(self):
         self.tag_pattern = re.compile(r'(?is)^({0}|{1}).*({2}|{3})$'.format(
             self.environment.variable_start_string,
@@ -223,7 +235,6 @@ class Renderer(object):
         ))
 
         self._compile_escape_expressions()
-
 
     def _compile_escape_expressions(self):
         # Compiles escape expressions
@@ -255,13 +266,11 @@ class Renderer(object):
 
         return len(self.tag_pattern.findall(tag)) > 0
 
-
     def _is_block_tag(self, tag):
         """
             Returns True is tag (str) is a jinja flow control tag.
         """
         return len(self.block_pattern.findall(tag)) > 0
-
 
     def _tags_in_document(self, document):
         """
@@ -279,7 +288,6 @@ class Renderer(object):
 
             yield tag
 
-
     def _census_tags(self, document):
         """
         Make a census of all available jinja tags in document. We count all
@@ -293,8 +301,7 @@ class Renderer(object):
 
             self._inc_node_tags_count(tag.parentNode, block_tag)
 
-
-    def  _prepare_document_tags(self, document):
+    def _prepare_document_tags(self, document):
         """ Here we search for every field node present in xml_document.
         For each field we found we do:
         * if field is a print field ({{ field }}), we replace it with a
@@ -394,7 +401,6 @@ class Renderer(object):
             # Finally, remove the placeholder
             placeholder_parent.removeChild(placeholder)
 
-
     def _unescape_entities(self, xml_text):
         """
         Unescape links and '&amp;', '&lt;', '&quot;' and '&gt;' within jinja
@@ -439,7 +445,6 @@ class Renderer(object):
 
         return xml_text
 
-
     def add_media_to_archive(self, media, mime, name=''):
         """
         Adds to "Pictures" archive folder the file in `media` and register
@@ -467,7 +472,6 @@ class Renderer(object):
 
         return media_path
 
-
     def fs_loader(self, media, *args, **kwargs):
         """Loads a file from the file system.
         :param media: A file object or a relative or absolute path of a file.
@@ -488,8 +492,7 @@ class Renderer(object):
                 return
 
         mime = guess_type(filename)
-        return (open(filename, 'rb'), mime[0] if mime else None)
-
+        return open(filename, 'rb'), mime[0] if mime else None
 
     def replace_images(self, xml_document):
         """Perform images replacements"""
@@ -583,7 +586,6 @@ class Renderer(object):
         finally:
             self.log.debug('Rendering xml object finished')
 
-
     def render(self, template, **kwargs):
         """
             Render a template
@@ -625,7 +627,6 @@ class Renderer(object):
         document = self._pack_document(self.files)
         return document.getvalue()
 
-
     def _parent_of_type(self, node, of_type):
         # Returns the first immediate parent of type `of_type`.
         # Returns None if nothing is found.
@@ -659,7 +660,6 @@ class Renderer(object):
         Creates a text node
         """
         return xml_document.createTextNode(text)
-
 
     def get_style_by_name(self, style_name):
         """
@@ -716,74 +716,113 @@ class Renderer(object):
         if not isinstance(markdown_text, basestring):
             return ''
 
-        from xml.dom import Node
-        from markdown_map import transform_map
-
         try:
             from markdown2 import markdown
         except ImportError:
             raise SecretaryError('Could not import markdown2 library. Install it using "pip install markdown2"')
 
+        # Use some namespaces
+        nss = dict(
+            table="urn:oasis:names:tc:opendocument:xmlns:table:1.0",
+            text="urn:oasis:names:tc:opendocument:xmlns:text:1.0",
+        )
+
         styles_cache = {}   # cache styles searching
         html_text = markdown(markdown_text)
-        xml_object = parseString('<html>%s</html>' % html_text.encode('ascii', 'xmlcharrefreplace'))
+        encoded_text = html_text.encode('ascii', 'xmlcharrefreplace')
+        encoded_text = encoded_text.decode('utf-8')
+
+        xml_object = parseString(
+            '<html %s>%s</html>' % (
+                ' '.join(['xmlns:{0}="{1}"'.format(k, v) for k, v in nss.items()]),
+                encoded_text
+            )
+        )
 
         # Transform HTML tags as specified in transform_map
         # Some tags may require extra attributes in ODT.
         # Additional attributes are indicated in the 'attributes' property
 
-        for tag in transform_map:
-            html_nodes = xml_object.getElementsByTagName(tag)
-            for html_node in html_nodes:
-                odt_node = xml_object.createElement(transform_map[tag]['replace_with'])
+        def recursive_transform(node, paragraph=False, depth=0):
 
-                # Transfer child nodes
-                if html_node.hasChildNodes():
-                    # We can't directly insert text into a text:list-item element.
-                    # The content of the item most be wrapped inside a container
-                    # like text:p. When there's not a double linebreak separating
-                    # list elements, markdown2 creates <li> elements without wraping
-                    # their contents inside a container. Here we automatically create
-                    # the container if one was not created by markdown2.
-                    if (tag=='li' and html_node.childNodes[0].localName != 'p'):
-                        container = xml_object.createElement('text:p')
-                        odt_node.appendChild(container)
+            if node.hasChildNodes:
+                for child_node in node.childNodes:
+                    original_child_node = child_node
+
+                    tag = child_node.localName
+
+                    if tag in self.transform_map:
+                        replace_with = self.transform_map[tag]['replace_with']
+                        odt_node = xml_object.createElement(replace_with)
+
+                        if child_node.hasChildNodes:
+                            paragraph = replace_with == 'text:p'
+                            child_node = recursive_transform(child_node, paragraph=paragraph, depth=depth+1)
+
+                            for child in child_node.childNodes:
+                                odt_node.appendChild(child.cloneNode(True))
+                        else:
+                            odt_node.appendChild(child_node.cloneNode(True))
+
+                        node.replaceChild(odt_node, original_child_node)
+
+                        # Переносим явно заданные атрибуты по неймспейсам
+                        for attr_name, attr_value in child_node.attributes.items():
+                            odt_node.setAttribute(attr_name, attr_value)
+
+                        # Add style-attributes defined in transform_map
+                        if 'style_attributes' in self.transform_map[tag]:
+                            for k, v in self.transform_map[tag]['style_attributes'].items():
+                                # Только добавляем новые атрибуты. Существующие пропускаем
+                                attr_name = 'text:%s' % k
+                                if not child_node.hasAttribute(attr_name):
+                                    odt_node.setAttribute(attr_name, v)
+
+                        # Add defined attributes
+                        if 'attributes' in self.transform_map[tag]:
+                            for k, v in self.transform_map[tag]['attributes'].items():
+                                odt_node.setAttribute(k, v)
+
+                            # copy original href attribute in <a> tag
+                            if tag == 'a':
+                                if child_node.hasAttribute('href'):
+                                    odt_node.setAttribute('xlink:href',
+                                        child_node.getAttribute('href'))
+
+                        # Does the node need to create an style?
+                        if 'style' in self.transform_map[tag]:
+                            name = self.transform_map[tag]['style']['name']
+                            if not name in styles_cache:
+                                style_node = self.get_style_by_name(name)
+
+                                if style_node is None:
+                                    # Create and cache the style node
+                                    style_node = self.insert_style_in_content(
+                                        name, self.transform_map[tag]['style'].get('attributes', None),
+                                        **self.transform_map[tag]['style']['properties'])
+                                    styles_cache[name] = style_node
+
+                    elif child_node.nodeName == '#text':
+                        if not paragraph and child_node.toxml().strip():
+
+                            odt_node = xml_object.createElement('text:p')
+                            odt_node.appendChild(child_node.cloneNode(True))
+
+                            node.replaceChild(odt_node, original_child_node)
+                        else:
+                            child_node.data = child_node.data.strip()
+                            continue
+
+                    elif child_node.hasChildNodes:
+                        odt_node = recursive_transform(child_node, depth=depth+1)
+
+                        node.replaceChild(odt_node, original_child_node)
                     else:
-                        container = odt_node
+                        continue
 
-                    for child_node in html_node.childNodes:
-                        container.appendChild(child_node.cloneNode(True))
+            return node
 
-                # Add style-attributes defined in transform_map
-                if 'style_attributes' in transform_map[tag]:
-                    for k, v in transform_map[tag]['style_attributes'].items():
-                        odt_node.setAttribute('text:%s' % k, v)
-
-                # Add defined attributes
-                if 'attributes' in transform_map[tag]:
-                    for k, v in transform_map[tag]['attributes'].items():
-                        odt_node.setAttribute(k, v)
-
-                    # copy original href attribute in <a> tag
-                    if tag == 'a':
-                        if html_node.hasAttribute('href'):
-                            odt_node.setAttribute('xlink:href',
-                                html_node.getAttribute('href'))
-
-                # Does the node need to create an style?
-                if 'style' in transform_map[tag]:
-                    name = transform_map[tag]['style']['name']
-                    if not name in styles_cache:
-                        style_node = self.get_style_by_name(name)
-
-                        if style_node is None:
-                            # Create and cache the style node
-                            style_node = self.insert_style_in_content(
-                                name, transform_map[tag]['style'].get('attributes', None),
-                                **transform_map[tag]['style']['properties'])
-                            styles_cache[name] = style_node
-
-                html_node.parentNode.replaceChild(odt_node, html_node)
+        xml_object = recursive_transform(xml_object)
 
         def node_to_string(node):
             result = node.toxml()
@@ -796,9 +835,19 @@ class Renderer(object):
             # All double linebreak should be replaced with an empty paragraph
             return result.replace('\n\n', '<text:p text:style-name="Standard"/>')
 
-
-        return ''.join(node_as_str for node_as_str in map(node_to_string,
+        result = ''.join(node_as_str for node_as_str in map(node_to_string,
                 xml_object.getElementsByTagName('html')[0].childNodes))
+
+        if False:
+            raise Exception([
+                html_text,
+                '------------------------------------------------------------------------------------------------------',
+                #encoded_text,
+                #'------------------------------------------------------------------------------------------------------',
+                result
+            ])
+
+        return result
 
     def image_filter(self, value, *args, **kwargs):
         """Store value into template_images and return the key name where this
@@ -819,7 +868,7 @@ def render_template(template, **kwargs):
         Render a ODF template file
     """
 
-    engine = Renderer(file)
+    engine = Renderer(template)
     return engine.render(**kwargs)
 
 
